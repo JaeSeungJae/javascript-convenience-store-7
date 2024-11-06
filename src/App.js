@@ -10,6 +10,7 @@ class App {
     console.log(productData);
     console.log(promotionData);
     entryInform(productData);
+    askHowManyBuy();
   }
 }
 
@@ -43,8 +44,8 @@ const entryInform = (productData) => {
   
 }
 
-const askHowManyBuy = () => {
-  const input = MissionUtils.Console.readLineAsync('구매하실 상품명과 수량을 입력해 주세요. (예 : [사이다-2],[감자칩-1])');
+const askHowManyBuy = async () => {
+  const input = await MissionUtils.Console.readLineAsync('구매하실 상품명과 수량을 입력해 주세요. (예 : [사이다-2],[감자칩-1])\n');
   const items = input.match(/\[.*?\]/g) || [];
   const parsedItems = items.map(item => {
     const [name, quantity] = item.replace(/[\[\]]/g, '').split('-');
@@ -53,6 +54,7 @@ const askHowManyBuy = () => {
       quantity : Number(quantity.trim())
     };
   });
+  console.log(parsedItems);
   return parsedItems; // [{name : 사이다, quantity : 2}, {name : 감자칩, quantity : 1}]
 }
 
