@@ -43,6 +43,20 @@ const entryInform = (productData) => {
   
 }
 
+const askHowManyBuy = () => {
+  const input = MissionUtils.Console.readLineAsync('구매하실 상품명과 수량을 입력해 주세요. (예 : [사이다-2],[감자칩-1])');
+  const items = input.match(/\[.*?\]/g) || [];
+  const parsedItems = items.map(item => {
+    const [name, quantity] = item.replace(/[\[\]]/g, '').split('-');
+    return {
+      name : name.trim(),
+      quantity : Number(quantity.trim())
+    };
+  });
+  return parsedItems; // [{name : 사이다, quantity : 2}, {name : 감자칩, quantity : 1}]
+}
+
+
 
 
 export default App;
