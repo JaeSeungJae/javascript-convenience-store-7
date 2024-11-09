@@ -3,24 +3,27 @@ import { MissionUtils } from '@woowacourse/mission-utils';
 
 class App {
   async run() {
+    try {
+      let continueShopping = true;
     const productData = readMeFile('public/products.md'); // 물품 재고
-
     const promotionData = readMeFile('public/promotions.md'); // 행사 현황
-
-    entryInform(productData); // 입장 시 출력
-
-    const purchaseItems = await askHowManyBuy(productData); // 구매할 물품
-
-    const checkPromo = checkPromotion(purchaseItems, productData, promotionData); // 구매할 물품의 프로모션 여부 확인
-
-    const compare = comparePromotion(checkPromo, promotionData);
-
-    await askShortageStock(compare);
-
-    await askApplyPromo(compare);
-    const memberShip = await askToUseMemberShip();
-    printReceipt(compare, productData, memberShip);
-    refreshStock(compare, productData);
+    
+    while (continueShopping) {
+      entryInform(productData); // 입장 시 출력
+      const purchaseItems = await askHowManyBuy(productData); // 구매할 물품
+      const checkPromo = checkPromotion(purchaseItems, productData, promotionData); // 구매할 물품의 프로모션 여부 확인
+      const compare = comparePromotion(checkPromo, promotionData);
+      await askShortageStock(compare);
+      await askApplyPromo(compare);
+      const memberShip = await askToUseMemberShip();
+      printReceipt(compare, productData, memberShip);
+      refreshStock(compare, productData);
+      continueShopping = await askToContinue();
+      }
+    }
+    catch (error) {
+      throw error;
+    }
   }
 }
 
@@ -40,44 +43,88 @@ function readMeFile(filePath) {
 }
 
 const entryInform = (productData) => {
-  console.log('안녕하세요. W편의점입니다.');
-  console.log('현재 보유하고 있는 상품입니다.');
+  MissionUtils.Console.print('안녕하세요. W편의점입니다.');
+  MissionUtils.Console.print('현재 보유하고 있는 상품입니다.');
   const formatter = new Intl.NumberFormat('ko-KR');
-  for (let i = 0; i < productData.length; i++) {
-    let output = `- ${productData[i].name} ${formatter.format(Number(productData[i].price))}원 ${productData[i].quantity}개`;
 
-    if (productData[i].promotion && productData[i].promotion !== 'null') {
-      output += ` ${productData[i].promotion}`;
+  const groupedProducts = productData.reduce((acc, product) => {
+    if (!acc[product.name]) acc[product.name] = [];
+    acc[product.name].push(product);
+    return acc;
+  }, {});
+
+  for (const [name, products] of Object.entries(groupedProducts)) {
+    let hasNonPromo = false; // 프로모션이 없는 동일 상품이 있는지 확인하는 플래그
+
+    products.forEach(product => {
+      let output = `- ${product.name} ${formatter.format(Number(product.price))}원 ${product.quantity}개`;
+
+      if (product.promotion && product.promotion !== 'null') {
+        output += ` ${product.promotion}`;
+      } else {
+        hasNonPromo = true; // 프로모션 없는 상품 존재 시 플래그 설정
+      }
+
+      MissionUtils.Console.print(output);
+    });
+
+    // 프로모션이 없는 동일 상품이 없으면 "재고 없음" 메시지 추가 출력
+    if (!hasNonPromo) {
+      const product = products[0]; // 같은 이름의 상품 중 하나를 참조
+      MissionUtils.Console.print(`- ${name} ${formatter.format(Number(product.price))}원 재고 없음`);
     }
-    console.log(output);
   }
 }
 
 const askHowManyBuy = async (productData) => {
-  const input = await MissionUtils.Console.readLineAsync('구매하실 상품명과 수량을 입력해 주세요. (예 : [사이다-2],[감자칩-1])\n');
-  const items = input.match(/\[.*?\]/g) || [];
-  const parsedItems = items.map(item => {
-    const [name, quantity] = item.replace(/[\[\]]/g, '').split('-');
-    const requestedQuantity = Number(quantity.trim());
-    const products = productData.filter(prod => prod.name === name.trim());
-    const totalQuantity = products.reduce((sum, prod) => sum + Number(prod.quantity), 0);
-    const promoQuantity = products.filter(prod => prod.promotion && prod.promotion !== 'null').reduce((sum, prod) => sum + Number(prod.quantity), 0);
-    const nonPromoQuantity = totalQuantity - promoQuantity;
-    let overQuantity = 0;
-    if (requestedQuantity > totalQuantity) {
-      throw new Error('[ERROR] 재고 수량을 초과하여 구매할 수 없습니다. 다시 입력해 주세요.');
+  const input = await MissionUtils.Console.readLineAsync(
+    '구매하실 상품명과 수량을 입력해 주세요. (예 : [사이다-2],[감자칩-1])\n'
+  );
+  try {
+    // 올바른 형식 검사
+    if (!input.match(/^\[.*?\]$/g)) {
+      throw new Error('[ERROR] 올바르지 않은 형식으로 입력했습니다. 다시 입력해 주세요.');
     }
-    if (requestedQuantity > promoQuantity && requestedQuantity <= totalQuantity) {
-      overQuantity = requestedQuantity - promoQuantity;
-    }
-    return {
-      name : name.trim(),
-      quantity : Number(quantity.trim()),
-      overQuantity : overQuantity
-    };
-  });
-  return parsedItems; // [{name : 사이다, quantity : 2}, {name : 감자칩, quantity : 1}]
-}
+    const items = input.match(/\[.*?\]/g) || [];
+    const parsedItems = items.map(item => {
+      const [name, quantity] = item.replace(/[\[\]]/g, '').split('-');
+      // 수량이 숫자인지 확인
+      if (isNaN(Number(quantity))) {
+        throw new Error('[ERROR] 올바르지 않은 형식으로 입력했습니다. 다시 입력해 주세요.');
+      }
+      const requestedQuantity = Number(quantity.trim());
+      // 존재하는 상품인지 확인
+      const product = productData.find(prod => prod.name === name.trim());
+      if (!product) {
+        throw new Error('[ERROR] 존재하지 않는 상품입니다. 다시 입력해 주세요.');
+      }
+      // 재고 수량 검사
+      const products = productData.filter(prod => prod.name === name.trim());
+      const totalQuantity = products.reduce((sum, prod) => sum + Number(prod.quantity), 0);
+      if (requestedQuantity > totalQuantity) {
+        throw new Error('[ERROR] 재고 수량을 초과하여 구매할 수 없습니다. 다시 입력해 주세요.');
+      }
+      const promoQuantity = products
+        .filter(prod => prod.promotion && prod.promotion !== 'null')
+        .reduce((sum, prod) => sum + Number(prod.quantity), 0);
+      let overQuantity = 0;
+      if (requestedQuantity > promoQuantity && requestedQuantity <= totalQuantity) {
+        overQuantity = requestedQuantity - promoQuantity;
+      }
+      return {
+        name: name.trim(),
+        quantity: requestedQuantity,
+        overQuantity: overQuantity,
+      };
+    });
+
+    return parsedItems;
+  }
+  catch (error) {
+    MissionUtils.Console.print(error.message);
+    return await askHowManyBuy(productData);
+  }
+};
 
 const askToUseMemberShip = async () => {
   const input = await MissionUtils.Console.readLineAsync('멤버쉽 할인을 받으시겠습니까? (Y/N)\n');
@@ -85,6 +132,9 @@ const askToUseMemberShip = async () => {
 }
 
 const checkPromotion = (purchaseItems, productData, promotionData) => {
+  if (!purchaseItems || purchaseItems.length === 0) {
+    throw new Error('[ERROR] 구매 항목이 없습니다.');
+  }
   return purchaseItems.map(item => {
     // 해당 상품이 productData에 있는지 찾고, 프로모션 정보가 있는지 확인
     const product = productData.find(prod => prod.name === item.name);
@@ -230,9 +280,7 @@ const printReceipt = (comparePromotion, productData, membership) => {
 const refreshStock = (comparePromotion, productData) => {
   comparePromotion.forEach(item => {
     const product = productData.find(prod => item.name === prod.name);
-    console.log(product);
     const productNoPromo = productData.find(prod => (item.name === prod.name && prod.promotion === 'null'));
-    console.log(productNoPromo);
     if (product.quantity >= item.quantity) {
       product.quantity -= item.quantity;
     }
